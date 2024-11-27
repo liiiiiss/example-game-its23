@@ -2,7 +2,7 @@ import pygame
 import sys
 import random
 
-
+# Initialize Pygame
 pygame.init()
 
 # Game Settings
@@ -11,37 +11,47 @@ screen_height = 600
 background_color = (0, 0, 139)  # Dark blue
 player_speed = 5
 bubble_min_speed = 2
-bubble_max_speed = 6
+bubble_max_speed = 4
 bubble_min_radius = 10
 bubble_max_radius = 50
-bubble_interval = 800  
-FPS = 60  # Frame rate for smoother gameplay
-max_score = 1000  
+bubble_interval = 1000  # Time interval for new bubble creation
+FPS = 60
+max_score = 5000  # Winning condition: extended for a longer game
+
+# Obstacle settings
+obstacle_width = 50
+obstacle_height = 50
+obstacle_speed = 8
+obstacle_interval_range = (5000, 10000)  # Random interval for obstacle spawn in ms
+pygame.time.set_timer(pygame.USEREVENT + 1, random.randint(*obstacle_interval_range))
 
 # Create the game window
 screen = pygame.display.set_mode((screen_width, screen_height))
 pygame.display.set_caption('Bubble Bluster')
 
-# Player settings (red rectangle at the top-left corner)
+# Player settings (red rectangle)
 player_image = pygame.Surface((50, 50))  # Red rectangle for player
-player_image.fill((255, 0, 0))  # Fill the player rectangle with red
+player_image.fill((255, 0, 0))
 player_rect = player_image.get_rect()
 player_rect.topleft = (0, 0)
 
-# Define bubbles (white circles with transparency inside)
+# Define bubbles (white circles)
 bubbles = []
 pygame.time.set_timer(pygame.USEREVENT, bubble_interval)
 
-# Font settings for the score and other texts
+# Obstacles
+obstacles = []
+
+# Font settings
 font = pygame.font.SysFont(None, 46)
-win_font = pygame.font.SysFont(None, 72)  # Larger font for "You Win"
+win_font = pygame.font.SysFont(None, 72)
 score = 0
 
 # Play button settings
 button_width = 200
 button_height = 50
-button_color = (255, 0, 0)  # Red background for "Play"
-button_text_color = (255, 255, 255)  # White text
+button_color = (255, 0, 0)
+button_text_color = (255, 255, 255)
 button_rect = pygame.Rect((screen_width // 2 - button_width // 2, screen_height // 2 - button_height // 2), (button_width, button_height))
 button_font = pygame.font.SysFont(None, 46)
 button_text = button_font.render("Play", True, button_text_color)
@@ -49,111 +59,124 @@ button_text = button_font.render("Play", True, button_text_color)
 # Game states
 game_active = False
 game_won = False
+game_lost = False
 
-# Function to create a new bubble with random radius, speed, and starting position
+# Function to create a new bubble
 def create_bubble():
     radius = random.randint(bubble_min_radius, bubble_max_radius)
     base_speed = random.randint(bubble_min_speed, bubble_max_speed)
-    
-    # Speed scaling based on score
-    speed_multiplier = 1 + score / 100
+    speed_multiplier = 1 + score / 2000  # Slower scaling for a longer game
     bubble_speed = int(base_speed * speed_multiplier)
-    
     bubble_rect = pygame.Rect(screen_width, random.randint(0, screen_height - radius * 2), radius * 2, radius * 2)
-
-    # Create a surface for the bubble with transparency
     bubble_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-
-   
     pygame.draw.circle(bubble_surface, (255, 255, 255), (radius, radius), radius, 2)
-
     return bubble_surface, bubble_rect, radius, bubble_speed
 
-# Function to move the bubbles leftwards across the screen
+# Function to create an obstacle
+def create_obstacle():
+    obstacle_rect = pygame.Rect(
+        screen_width,
+        random.randint(0, screen_height - obstacle_height),
+        obstacle_width,
+        obstacle_height
+    )
+    return obstacle_rect
+
+# Function to move bubbles leftwards
 def move_bubbles():
     for i in range(len(bubbles)):
         bubble_surface, bubble_rect, radius, speed = bubbles[i]
         bubble_rect.x -= speed
         bubbles[i] = (bubble_surface, bubble_rect, radius, speed)
-
-
+        
+# Function to create bubble "shatter" animation when hit
 def shatter_bubble(bubble_rect, radius):
     shatter_particles = []
-    for _ in range(5):  # Create 5 shatter particles
+    for _ in range(5):  # Loo 5 purunemise osakest
         particle_radius = random.randint(2, radius // 2)
         particle_speed = random.randint(1, 3)
         angle = random.uniform(0, 360)
-        alpha = 255  # Starting opacity
-        shatter_particles.append((bubble_rect.center, particle_radius, particle_speed, angle, alpha))
+        alpha = 255  # Algne opaktsus
+        shatter_particles.append(((bubble_rect.centerx, bubble_rect.centery), particle_radius, particle_speed, angle, alpha))
     return shatter_particles
 
 
+# Function to update shatter particles with fade-out effect
 def update_shatter_particles(particles):
     faded_particles = []
-    for (x, y), radius, speed, angle, alpha in particles:
+    for particle in particles:
+        (x, y), radius, speed, angle, alpha = particle  # Õige pakendamine
         if alpha > 0:
-            # Fade out and move particles
+            # Fade out ja liigu osakesega
             x += speed * random.uniform(-1, 1)
             y += speed * random.uniform(-1, 1)
-            alpha -= 5  # Reduce alpha (fading out)
+            alpha -= 5  # Fade out ehk vähenda alfa väärtust
             faded_particles.append(((x, y), radius, speed, angle, alpha))
     return faded_particles
 
+# Function to move obstacles leftwards
+def move_obstacles():
+    for i in range(len(obstacles)):
+        obstacle_rect = obstacles[i]
+        obstacle_rect.x -= obstacle_speed
+        obstacles[i] = obstacle_rect
 
+# Function to check for collisions
 def check_collision():
-    global bubbles, score, game_active, game_won
-    shatter_particles = []
-    for bubble in bubbles:
+    global bubbles, score, game_active, game_won, shatter_particles
+    for bubble in bubbles[:]:
         bubble_surface, bubble_rect, radius, speed = bubble
         if player_rect.colliderect(bubble_rect):
-            points = 100 - radius  # Inverse of radius for score
-            score += points
-            shatter_particles += shatter_bubble(bubble_rect, radius)
+            shatter_particles.extend(shatter_bubble(bubble_rect, radius))  # Add shatter particles
+            score += max(50, 100 - radius)  # Adjusted scoring for longer gameplay
             bubbles.remove(bubble)
-            if score >= max_score:  # Check if score reached the winning condition
+            if score >= max_score:
                 game_active = False
                 game_won = True
-    return shatter_particles
 
 
+# Function to check if player hits an obstacle
+def check_obstacle_collision():
+    global obstacles, game_active, game_lost
+    for obstacle in obstacles[:]:
+        if player_rect.colliderect(obstacle):
+            game_active = False
+            game_lost = True
+
+# Function to draw the "Play" button
 def draw_play_button():
     pygame.draw.rect(screen, button_color, button_rect)
     screen.blit(button_text, (button_rect.centerx - button_text.get_width() // 2, button_rect.centery - button_text.get_height() // 2))
-
-
-def draw_play_again_button():
-    pygame.draw.rect(screen, (255, 0, 0), button_rect)  # Red background for "Play Again"
-    play_again_text = button_font.render("Play Again", True, button_text_color)
-    screen.blit(play_again_text, (button_rect.centerx - play_again_text.get_width() // 2, button_rect.centery - play_again_text.get_height() // 2))
 
 # Main game loop
 clock = pygame.time.Clock()
 running = True
 shatter_particles = []
 while running:
-    # Check for events (like quit or mouse click)
+    # Check for events
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
         if event.type == pygame.USEREVENT and game_active:
-            
-            for _ in range(3):  # Spawn 3 bubbles at a time
+            # Spawn fewer bubbles for longer gameplay
+            for _ in range(2):  # Reduced from 3 to 2
                 bubbles.append(create_bubble())
+        if event.type == pygame.USEREVENT + 1 and game_active:
+            # Spawn an obstacle at random intervals
+            obstacles.append(create_obstacle())
+            # Reset timer for obstacle spawn
+            pygame.time.set_timer(pygame.USEREVENT + 1, random.randint(*obstacle_interval_range))
         if event.type == pygame.MOUSEBUTTONDOWN:
             if not game_active and button_rect.collidepoint(event.pos):
                 game_active = True
-                score = 0  # Reset score when restarting the game
-                bubbles.clear()  # Clear bubbles from the screen
-            if game_won and button_rect.collidepoint(event.pos):
-                # Reset game to play again
-                game_active = True
                 game_won = False
+                game_lost = False
                 score = 0
                 bubbles.clear()
+                obstacles.clear()
 
     # If the game is active, player can move and bubbles appear
     if game_active:
-        
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LEFT] and player_rect.left > 0:
             player_rect.x -= player_speed
@@ -164,52 +187,57 @@ while running:
         if keys[pygame.K_DOWN] and player_rect.bottom < screen_height:
             player_rect.y += player_speed
 
-        
         move_bubbles()
+        move_obstacles()
+        check_collision()
+        check_obstacle_collision()
 
-        
-        shatter_particles += check_collision()
-
-        
+        # Remove off-screen bubbles and obstacles
         bubbles = [bubble for bubble in bubbles if bubble[1].right > 0]
+        obstacles = [obstacle for obstacle in obstacles if obstacle.right > 0]
 
-    
+    # Fill the background
     screen.fill(background_color)
 
-    
+    # Draw the player
     if game_active:
         screen.blit(player_image, player_rect)
 
-        
+        # Draw the bubbles
         for bubble_surface, bubble_rect, radius, speed in bubbles:
             screen.blit(bubble_surface, bubble_rect)
-
-        # Draw shatter particles with fade-out effect
+            
+         # Draw shatter particles with fade-out effect
         for (x, y), radius, speed, angle, alpha in shatter_particles:
             surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
             pygame.draw.circle(surface, (255, 255, 255, alpha), (radius, radius), radius, 1)
             screen.blit(surface, (x - radius, y - radius))
         shatter_particles = update_shatter_particles(shatter_particles)
 
-        # Display the score in the top-right corner
+        # Draw the obstacles
+        for obstacle_rect in obstacles:
+            pygame.draw.rect(screen, (0, 0, 0), obstacle_rect)
+
+        # Display the score
         score_text = font.render(f"Score: {score}", True, (255, 255, 255))
         screen.blit(score_text, (screen_width - score_text.get_width() - 20, 20))
 
-    # If the game is won, show "You Win!" and "Play Again" button
+    # Display winning or losing screen
     if game_won:
-        # Display "You Win!" in yellow
         win_text = win_font.render("You Win!", True, (255, 255, 0))
         screen.blit(win_text, (screen_width // 2 - win_text.get_width() // 2, screen_height // 2 - 150))
-        draw_play_again_button()
-    else:
-        # Draw play button if game is not active
-        if not game_active:
-            draw_play_button()
+        draw_play_button()
+    elif game_lost:
+        lose_text = win_font.render("Game Over!", True, (255, 0, 0))
+        screen.blit(lose_text, (screen_width // 2 - lose_text.get_width() // 2, screen_height // 2 - 150))
+        draw_play_button()
+    elif not game_active:
+        draw_play_button()
 
-    # Update the display
     pygame.display.flip()
-    clock.tick(FPS)  # Maintain the desired frame rate
+    clock.tick(FPS)
 
-# Quit the game
 pygame.quit()
 sys.exit()
+
+
